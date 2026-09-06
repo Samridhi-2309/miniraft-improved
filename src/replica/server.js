@@ -578,8 +578,17 @@ app.post('/rpc/forward-stroke', (req, res) => {
   }
   
   if (payload && payload.type === 'stroke') {
+    const commandId = payload.commandId;
+
+    if (state.hasProcessedCommand(commandId)) {
+      logger.info(`[LEADER] Ignoring duplicate stroke command ${commandId}`);
+      return res.json({ ok: true, duplicate: true });
+    }
+
     // Wrap under 'command' so applyCommittedEntries detects it correctly.
     const entryIndex = state.appendEntry({ command: payload });
+    state.markCommandProcessed(commandId);
+
     logger.info(`[LEADER] Received forwarded stroke, appended at index ${entryIndex}`);
     
     // Replicate to followers (and broadcast to own clients once committed)
@@ -726,7 +735,16 @@ wss.on('connection', (ws) => {
 
         // Leader appends stroke to log wrapped under 'command' so applyCommittedEntries
         // can detect it (logEntry.command.type === 'stroke').
+
+        const commandId = payload.commandId;
+
+        if (state.hasProcessedCommand(commandId)) {
+          logger.info(`[LEADER] Ignoring duplicate stroke command ${commandId}`);
+          return;
+        }
+
         const entryIndex = state.appendEntry({ command: payload });
+        state.markCommandProcessed(commandId);
         logger.info(`[LEADER] Appended stroke to log at index ${entryIndex}`);
 
         // Optimistically broadcast to the leader's own WS clients immediately (good UX).

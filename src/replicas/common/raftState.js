@@ -34,6 +34,7 @@ class RaftState {
     this.currentTerm = 0;
     this.votedFor = null;
     this.log = [];
+    this.processedCommandIds = new Set();
 
     // Volatile state
     this.commitIndex = -1;
@@ -142,6 +143,22 @@ class RaftState {
       return true;
     }
     return false;
+  }
+
+  /**
+   * Check whether a command has already been processed.
+   */
+  hasProcessedCommand(commandId) {
+    return Boolean(commandId) && this.processedCommandIds.has(commandId);
+  }
+
+  /**
+   * Mark a command as processed.
+   */
+  markCommandProcessed(commandId) {
+    if (commandId) {
+      this.processedCommandIds.add(commandId);
+    }
   }
 
   /**

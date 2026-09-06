@@ -71,18 +71,6 @@ class LeaderRouter {
     const discovered = await this.discoverLeader();
     if (discovered) return await tryPost(discovered);
 
-    // Last resort: try all replicas until one accepts
-    for (const r of this.replicas) {
-      try {
-        const result = await tryPost(r);
-        this.currentLeader = r; // accept as leader
-        this.logger.event('ROUTE', { action: 'assume_leader', leader: r });
-        return result;
-      } catch (err) {
-        continue;
-      }
-    }
-
     throw new Error('No leader available to accept command');
   }
 }

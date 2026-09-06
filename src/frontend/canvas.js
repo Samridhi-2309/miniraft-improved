@@ -97,6 +97,7 @@ function createCanvas(canvasEl) {
     if (points.length > 0) {
       const stroke = {
         type: 'stroke',
+        commandId: crypto.randomUUID(),
         points: points.slice(),
         color,
         timestamp: Date.now()
