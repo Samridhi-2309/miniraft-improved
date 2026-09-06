@@ -20,13 +20,11 @@ module.exports = {
   // Wait this long for RPC response before considering it failed
   RPC_TIMEOUT: 5000,
 
-  // Number of replicas needed for quorum (majority)
-  // For 3 replicas: need 2 votes to form majority
-  QUORUM_SIZE: 2,
-
-  // Total replicas in cluster
-  // This should be 3 for this project
-  TOTAL_REPLICAS: 3,
+  /**
+   * Majority for a cluster of N nodes. Derived, never hardcoded —
+   * quorum must always be recomputed from actual cluster size.
+   */
+  quorumSize: (totalReplicas) => Math.floor(totalReplicas / 2) + 1,
 
   /**
    * Get random election timeout
