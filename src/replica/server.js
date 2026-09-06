@@ -692,12 +692,12 @@ const wsClients = new Set();
 // Broadcast RAFT state to all connected WebSocket clients
 function broadcastRaftState() {
   // Determine if the leader currently has quorum.
-  // A leader has quorum when at least one peer's matchIndex >= 0,
-  // meaning a follower has acknowledged at least one log entry this term.
+  // A leader has quorum when enough peers have acknowledged log entries
+  // to reach the dynamically calculated cluster quorum.
   let hasQuorum = !state.isLeader(); // followers/candidates always "have quorum" for display purposes
   if (state.isLeader() && replicationManager) {
     const syncedPeers = Object.values(replicationManager.matchIndex).filter((m) => m >= 0).length;
-    hasQuorum = syncedPeers >= 1; // need at least 1 peer (self + 1 = majority of 3)
+    hasQuorum = syncedPeers + 1 >= replicationManager.quorum;
   }
 
   const stateUpdate = {
