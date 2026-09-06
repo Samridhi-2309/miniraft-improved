@@ -10,8 +10,7 @@ services:
       PEERS: "http://replica2:4002,http://replica3:4003"
       DEV_MODE: "false"
     volumes:
-      - ./replica1/src:/app/src:cached
-      - ./src/frontend:/app/src/frontend:cached
+      - ./src:/app/src:ro
       - ./data/replica1:/app/data
     ports:
       - "4001:4001"
@@ -30,8 +29,7 @@ services:
       PEERS: "http://replica1:4001,http://replica3:4003"
       DEV_MODE: "false"
     volumes:
-      - ./replica2/src:/app/src:cached
-      - ./src/frontend:/app/src/frontend:cached
+      - ./src:/app/src:ro
       - ./data/replica2:/app/data
     ports:
       - "4002:4002"
@@ -50,8 +48,7 @@ services:
       PEERS: "http://replica1:4001,http://replica2:4002"
       DEV_MODE: "false"
     volumes:
-      - ./replica3/src:/app/src:cached
-      - ./src/frontend:/app/src/frontend:cached
+      - ./src:/app/src:ro
       - ./data/replica3:/app/data
     ports:
       - "4003:4003"
