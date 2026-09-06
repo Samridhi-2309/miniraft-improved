@@ -65,14 +65,21 @@ class RaftState {
    * - Times out during election
    */
   toFollower(term = this.currentTerm) {
-    const changed = this.role !== 'follower' || this.currentTerm !== term;
-    this.currentTerm = term;
+    const termChanged = term > this.currentTerm;
+    const changed = this.role !== 'follower' || termChanged;
+
+    if (termChanged) {
+      this.currentTerm = term;
+      this.votedFor = null;
+    }
+
     this.role = 'follower';
-    this.votedFor = null;
     this.leaderId = null;
+
     if (changed) {
       this.stateChangeTimestamp = Date.now();
     }
+
     return changed;
   }
 
