@@ -36,8 +36,8 @@ class RaftState {
     this.log = [];
 
     // Volatile state
-    this.commitIndex = 0;
-    this.lastApplied = 0;
+    this.commitIndex = -1;
+    this.lastApplied = -1;
     this.role = 'follower'; // 'follower', 'candidate', 'leader'
     this.leaderId = null;
 
@@ -208,7 +208,7 @@ class RaftState {
    */
   getLastLogIndexAndTerm() {
     if (this.log.length === 0) {
-      return { lastLogIndex: 0, lastLogTerm: 0 };
+      return { lastLogIndex: -1, lastLogTerm: 0 };
     }
     const lastEntry = this.log[this.log.length - 1];
     return {
@@ -223,7 +223,7 @@ class RaftState {
    */
   updateCommitIndex(newCommitIndex) {
     const oldCommitIndex = this.commitIndex;
-    if (newCommitIndex > this.commitIndex && newCommitIndex <= this.getLogLength()) {
+    if (newCommitIndex > this.commitIndex && newCommitIndex < this.getLogLength()) {
       this.commitIndex = newCommitIndex;
       return true;
     }
