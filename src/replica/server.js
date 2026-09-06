@@ -314,6 +314,21 @@ app.post('/command', async (req, res) => {
     return res.status(400).json({ error: 'command required' });
   }
 
+  // Prevent the same client stroke from being appended more than once
+  // when the gateway retries after a timeout.
+  const commandId = command.commandId;
+
+  if (command.type === 'stroke') {
+    if (!commandId) {
+      return res.status(400).json({ error: 'stroke commandId required' });
+    }
+
+    if (state.hasProcessedCommand(commandId)) {
+      logger.info(`[LEADER] Ignoring duplicate stroke command ${commandId}`);
+      return res.json({ ok: true, duplicate: true });
+    }
+  }
+
   const entry = {
     term: state.currentTerm,
     command,
@@ -321,6 +336,10 @@ app.post('/command', async (req, res) => {
   };
 
   const index = state.appendEntry(entry);
+
+  if (command.type === 'stroke') {
+    state.markCommandProcessed(commandId);
+  }
 
   // Ensure leader replication state knows this entry is pending
   if (replicationManager) {
