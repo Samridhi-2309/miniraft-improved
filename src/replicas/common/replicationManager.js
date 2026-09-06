@@ -1,4 +1,4 @@
-const { QUORUM_SIZE, RPC_TIMEOUT } = require('./constants');
+const { quorumSize, RPC_TIMEOUT } = require('./constants');
 
 class ReplicationManager {
   constructor(state, peers, logger, broadcastFn) {
@@ -6,6 +6,8 @@ class ReplicationManager {
     this.peers = peers;
     this.logger = logger;
     this.broadcastFn = broadcastFn || (() => {}); // callback to broadcast strokes to clients
+    // Majority quorum = majority of all nodes, including this node
+    this.quorum = quorumSize(peers.length + 1);
 
     // nextIndex: index of next log entry to send to each follower
     // matchIndex: index of highest log entry known to be replicated on follower
@@ -152,7 +154,7 @@ class ReplicationManager {
     for (let idx = this.state.commitIndex + 1; idx <= N; idx++) {
       const replicatedCount =
         Object.values(this.matchIndex).filter((m) => m >= idx).length + 1; // +1 for leader itself
-      if (replicatedCount >= QUORUM_SIZE) {
+      if (replicatedCount >= this.quorum) {
         const entry = this.state.getEntryAt(idx);
         if (entry && entry.term === this.state.currentTerm) {
           highestCommittable = idx;

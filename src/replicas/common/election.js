@@ -12,14 +12,17 @@
  * It focuses on the election state machine and vote tracking.
  */
 
-const { QUORUM_SIZE, TOTAL_REPLICAS } = require('./constants');
+const { quorumSize } = require('./constants');
 
 class ElectionManager {
   constructor(state, peers, logger) {
     this.state = state;
     this.peers = peers; // Array of peer URLs
     this.logger = logger;
-    
+
+    // Majority quorum = majority of all nodes, including this node
+    this.quorum = quorumSize(peers.length + 1);
+
     // Vote tracking during election
     this.votesReceived = new Set(); // Set of replica IDs that voted for us
     this.electionInProgress = false;
@@ -33,16 +36,22 @@ class ElectionManager {
    */
   startElection() {
     if (this.electionInProgress) {
-      this.logger.warn('Election already in progress, ignoring new election request');
+      this.logger.warn(
+        'Election already in progress, ignoring new election request'
+      );
       return false;
     }
 
     // Transition to candidate
     const newTerm = this.state.toCandidate();
+
     this.electionInProgress = true;
     this.currentElectionTerm = newTerm;
+
     this.votesReceived.clear();
-    this.votesReceived.add(this.state.replicaId); // Vote for self
+
+    // Candidate votes for itself
+    this.votesReceived.add(this.state.replicaId);
 
     this.logger.info(
       `[ELECTION STARTED] term=${newTerm}, replicaId=${this.state.replicaId}`
@@ -64,25 +73,28 @@ class ElectionManager {
       return false;
     }
 
+    // Ignore duplicate votes
     if (this.votesReceived.has(voterId)) {
       this.logger.warn(`Duplicate vote from ${voterId}`);
       return false;
     }
 
     this.votesReceived.add(voterId);
+
     this.logger.info(
-      `[VOTE RECEIVED] from=${voterId}, votes=${this.votesReceived.size}, needed=${QUORUM_SIZE}`
+      `[VOTE RECEIVED] from=${voterId}, votes=${this.votesReceived.size}, needed=${this.quorum}`
     );
 
     return true;
   }
 
   /**
-   * Check if this candidate has won the election (received majority votes)
-   * For 3 replicas: need at least 2 votes (including self)
+   * Check if this candidate has won the election.
+   * A candidate needs a majority of the cluster votes,
+   * including its own vote.
    */
   hasWonElection() {
-    return this.votesReceived.size >= QUORUM_SIZE;
+    return this.votesReceived.size >= this.quorum;
   }
 
   /**
@@ -124,8 +136,9 @@ class ElectionManager {
    * Leader candidates should send this to all peers
    */
   buildRequestVotePayload() {
-    const { lastLogIndex, lastLogTerm } = this.state.getLastLogIndexAndTerm();
-    
+    const { lastLogIndex, lastLogTerm } =
+      this.state.getLastLogIndexAndTerm();
+
     return {
       term: this.state.currentTerm,
       candidateId: this.state.replicaId,
@@ -151,7 +164,7 @@ class ElectionManager {
       currentTerm: this.currentElectionTerm,
       votesReceived: Array.from(this.votesReceived),
       voteCount: this.votesReceived.size,
-      quorumNeeded: QUORUM_SIZE,
+      quorumNeeded: this.quorum,
       hasWon: this.hasWonElection()
     };
   }
