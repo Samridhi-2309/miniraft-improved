@@ -1,0 +1,100 @@
+services:
+  replica1:
+    container_name: replica1
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.replica
+    environment:
+      REPLICA_ID: "1"
+      PORT: "4001"
+      PEERS: "http://replica2:4002,http://replica3:4003,http://replica4:4004,http://replica5:4005"
+      DEV_MODE: "false"
+    volumes:
+      - ./src:/app/src:ro
+      - ./data/replica1:/app/data
+    ports:
+      - "4001:4001"
+    restart: "no"
+    networks:
+      - raft-network
+
+  replica2:
+    container_name: replica2
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.replica
+    environment:
+      REPLICA_ID: "2"
+      PORT: "4002"
+      PEERS: "http://replica1:4001,http://replica3:4003,http://replica4:4004,http://replica5:4005"
+      DEV_MODE: "false"
+    volumes:
+      - ./src:/app/src:ro
+      - ./data/replica2:/app/data
+    ports:
+      - "4002:4002"
+    restart: "no"
+    networks:
+      - raft-network
+
+  replica3:
+    container_name: replica3
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.replica
+    environment:
+      REPLICA_ID: "3"
+      PORT: "4003"
+      PEERS: "http://replica1:4001,http://replica2:4002,http://replica4:4004,http://replica5:4005"
+      DEV_MODE: "false"
+    volumes:
+      - ./src:/app/src:ro
+      - ./data/replica3:/app/data
+    ports:
+      - "4003:4003"
+    restart: "no"
+    networks:
+      - raft-network
+
+  replica4:
+    container_name: replica4
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.replica
+    environment:
+      REPLICA_ID: "4"
+      PORT: "4004"
+      PEERS: "http://replica1:4001,http://replica2:4002,http://replica3:4003,http://replica5:4005"
+      DEV_MODE: "false"
+    volumes:
+      - ./src:/app/src:ro
+      - ./data/replica4:/app/data
+    ports:
+      - "4004:4004"
+    restart: "no"
+    networks:
+      - raft-network
+
+  replica5:
+    container_name: replica5
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.replica
+    environment:
+      REPLICA_ID: "5"
+      PORT: "4005"
+      PEERS: "http://replica1:4001,http://replica2:4002,http://replica3:4003,http://replica4:4004"
+      DEV_MODE: "false"
+    volumes:
+      - ./src:/app/src:ro
+      - ./data/replica5:/app/data
+    ports:
+      - "4005:4005"
+    restart: "no"
+    networks:
+      - raft-network
+
+networks:
+  raft-network:
+    name: raft-network
+    driver: bridge

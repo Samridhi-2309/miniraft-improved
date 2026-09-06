@@ -2,13 +2,12 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-COPY package.json ./package-lock.json ./
-COPY node_modules ./node_modules
+COPY package.json ./
+RUN npm install
 
 COPY src ./src
 
 ENV PORT=4001
 EXPOSE 4001
 
-# If DEV_MODE is set to true, use nodemon to watch source changes and restart gracefully
 CMD ["sh", "-c", "if [ \"$DEV_MODE\" = \"true\" ]; then ./node_modules/.bin/nodemon --watch src --delay 1 --exec \"npm run start:replica\"; else npm run start:replica; fi"]
