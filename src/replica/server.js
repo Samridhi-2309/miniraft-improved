@@ -77,16 +77,20 @@ async function requestVotesFromPeers() {
     // Fire and forget - don't block on responses
     (async () => {
       try {
-        const response = await Promise.race([
-          fetch(`${peerUrl}/rpc/request-vote`, {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), RPC_TIMEOUT);
+
+        let response;
+        try {
+          response = await fetch(`${peerUrl}/rpc/request-vote`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          }),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('timeout')), RPC_TIMEOUT)
-          )
-        ]);
+            body: JSON.stringify(payload),
+            signal: controller.signal
+          });
+        } finally {
+          clearTimeout(timeoutId);
+        }
 
         if (!response.ok) {
           logger.rpc('RECV', 'request-vote', `error ${response.status}`);
@@ -209,16 +213,20 @@ function broadcastHeartbeat() {
   for (const peerUrl of PEERS) {
     (async () => {
       try {
-        const response = await Promise.race([
-          fetch(`${peerUrl}/rpc/heartbeat`, {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), RPC_TIMEOUT);
+
+        let response;
+        try {
+          response = await fetch(`${peerUrl}/rpc/heartbeat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          }),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('timeout')), RPC_TIMEOUT)
-          )
-        ]);
+            body: JSON.stringify(payload),
+            signal: controller.signal
+          });
+        } finally {
+          clearTimeout(timeoutId);
+        }
 
         if (!response.ok) {
           logger.debug(`Heartbeat to ${peerUrl} failed with ${response.status}`);
@@ -273,14 +281,22 @@ app.get('/clients-global', async (_req, res) => {
   let totalClients = wsClients.size;
   
   // Query other replicas in parallel with a short timeout
-  const promises = PEERS.map(peerUrl =>
-    Promise.race([
-      fetch(`${peerUrl}/clients`, { timeout: 500 })
-        .then(r => r.ok ? r.json() : { clients: 0 })
-        .catch(() => ({ clients: 0 })),
-      new Promise(resolve => setTimeout(() => resolve({ clients: 0 }), 500))
-    ])
-  );
+  const promises = PEERS.map(async peerUrl => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 500);
+
+    try {
+      const response = await fetch(`${peerUrl}/clients`, {
+        signal: controller.signal
+      });
+
+      return response.ok ? await response.json() : { clients: 0 };
+    } catch (err) {
+      return { clients: 0 };
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  });
   
   try {
     const results = await Promise.all(promises);
@@ -625,7 +641,18 @@ app.post('/rpc/forward-stroke', (req, res) => {
 async function pingPeers() {
   for (const peer of PEERS) {
     try {
-      const response = await fetch(`${peer}/health`, { method: 'GET' });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), RPC_TIMEOUT);
+
+      let response;
+      try {
+        response = await fetch(`${peer}/health`, {
+          method: 'GET',
+          signal: controller.signal
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
       if (!response.ok) {
         logger.debug(`peer unhealthy: ${peer} status=${response.status}`);
         continue;
@@ -731,11 +758,19 @@ wss.on('connection', (ws) => {
             
             try {
               // Forward stroke to leader immediately
-              await fetch(`${leaderPeerUrl}/rpc/forward-stroke`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-              });
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), RPC_TIMEOUT);
+
+              try {
+                await fetch(`${leaderPeerUrl}/rpc/forward-stroke`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(payload),
+                  signal: controller.signal
+                });
+              } finally {
+                clearTimeout(timeoutId);
+              }
             } catch (err) {
               logger.warn(`Failed to forward stroke to leader: ${err.message}`);
               ws.send(JSON.stringify({

@@ -1,4 +1,4 @@
-const DEFAULT_TIMEOUT = 5000;
+const { RPC_TIMEOUT } = require('../replicas/common/constants');
 
 class LeaderRouter {
   constructor(replicaEndpoints = [], logger) {
@@ -11,23 +11,33 @@ class LeaderRouter {
 
   async discoverLeader() {
     this.logger.info('Discovering leader among replicas');
+
     for (const r of this.replicas) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), RPC_TIMEOUT);
+
       try {
-        const res = await Promise.race([
-          fetch(`${r}/state`),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), DEFAULT_TIMEOUT))
-        ]);
+        const res = await fetch(`${r}/state`, {
+          signal: controller.signal
+        });
+
         if (!res.ok) continue;
+
         const json = await res.json();
+
         if (json.role === 'leader') {
           this.currentLeader = r;
           this.logger.info(`Leader discovered: ${r}`);
           return r;
         }
       } catch (err) {
-        this.logger.warn(`discoverLeader: ${r} -> ${err.message}`);
+        const message = err.name === 'AbortError' ? 'timeout' : err.message;
+        this.logger.warn(`discoverLeader: ${r} -> ${message}`);
+      } finally {
+        clearTimeout(timeoutId);
       }
     }
+
     this.logger.warn('No leader discovered');
     this.currentLeader = null;
     return null;
@@ -39,22 +49,31 @@ class LeaderRouter {
     // Try current leader first
     const tryPost = async (leaderUrl) => {
       this.logger.event('ROUTE', { action: 'post_attempt', to: leaderUrl });
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), RPC_TIMEOUT);
+
       try {
-        const res = await Promise.race([
-          fetch(`${leaderUrl}/command`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command })
-          }),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), DEFAULT_TIMEOUT))
-        ]);
+        const res = await fetch(`${leaderUrl}/command`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command }),
+          signal: controller.signal
+        });
+
         if (!res.ok) {
           const txt = await res.text().catch(() => '');
           throw new Error(`status=${res.status} ${txt}`);
         }
+
         this.logger.event('ROUTE', { action: 'post_success', to: leaderUrl });
         return await res.json();
       } catch (err) {
-        this.logger.warn(`sendCommand -> ${leaderUrl} failed: ${err.message}`);
-        throw err;
+        const message = err.name === 'AbortError' ? 'timeout' : err.message;
+        this.logger.warn(`sendCommand -> ${leaderUrl} failed: ${message}`);
+        throw new Error(message);
+      } finally {
+        clearTimeout(timeoutId);
       }
     };
 
