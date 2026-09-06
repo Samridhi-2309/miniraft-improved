@@ -257,7 +257,9 @@ class RaftState {
         votedFor: this.votedFor,
         log: this.log
       };
-      fs.writeFileSync(this._persistPath, JSON.stringify(payload), { encoding: 'utf8' });
+      const tempPath = `${this._persistPath}.tmp`;
+      fs.writeFileSync(tempPath, JSON.stringify(payload), { encoding: 'utf8' });
+      fs.renameSync(tempPath, this._persistPath);
     } catch (err) {
       // swallow persistence errors but log if environment requests it
       if (process.env.DEBUG) console.warn(`[RaftState] save failed: ${err.message}`);
