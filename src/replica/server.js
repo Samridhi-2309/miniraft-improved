@@ -476,16 +476,42 @@ app.post('/rpc/append-entries', (req, res) => {
     }
   }
 
-  // Delete conflicting entries after prevLogIndex
-  const currentLength = state.getLogLength();
-  const firstConflictIndex = prevLogIndex + 1;
-  if (firstConflictIndex < currentLength) {
-    state.log = state.log.slice(0, firstConflictIndex);
-  }
+  // Only replace entries when there is a genuine term conflict.
+  // Matching entries are already correct and must not be truncated.
+  let appendFrom = 0;
 
-  // Append new log entries from leader
   if (entries.length > 0) {
-    state.appendEntries(entries);
+    let conflictIndex = -1;
+
+    for (let i = 0; i < entries.length; i++) {
+      const logIdx = prevLogIndex + 1 + i;
+      const existing = state.getEntryAt(logIdx);
+
+      // Follower does not have this entry yet.
+      if (!existing) {
+        break;
+      }
+
+      // Same index but different term = genuine conflict.
+      if (existing.term !== entries[i].term) {
+        conflictIndex = logIdx;
+        break;
+      }
+
+      // Entry already matches the leader's entry.
+      appendFrom = i + 1;
+    }
+
+    if (conflictIndex !== -1) {
+      state.truncateFrom(conflictIndex);
+      appendFrom = conflictIndex - (prevLogIndex + 1);
+    }
+
+    const newEntries = entries.slice(appendFrom);
+
+    if (newEntries.length > 0) {
+      state.appendEntries(newEntries);
+    }
   }
 
   // Advance commit index

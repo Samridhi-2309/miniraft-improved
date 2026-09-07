@@ -195,6 +195,27 @@ class RaftState {
   }
 
   /**
+   * Truncate the log from the given index onwards.
+   * Used when AppendEntries finds a genuine term conflict.
+   */
+  truncateFrom(index) {
+    if (index < 0 || index >= this.log.length) {
+      return false;
+    }
+
+    // A committed entry must never be overwritten.
+    if (index <= this.commitIndex) {
+      throw new Error(
+        `Cannot truncate committed log entry at index ${index}; commitIndex=${this.commitIndex}`
+      );
+    }
+
+    this.log = this.log.slice(0, index);
+    this._saveToDisk();
+    return true;
+  }
+
+  /**
    * Get entry at specific index
    */
   getEntryAt(index) {
