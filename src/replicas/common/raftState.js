@@ -273,18 +273,34 @@ class RaftState {
    * Persist current persistent state to disk (synchronous safe writes)
    */
   _saveToDisk() {
+    const payload = {
+      currentTerm: this.currentTerm,
+      votedFor: this.votedFor,
+      log: this.log
+    };
+
+    const tempPath = `${this._persistPath}.tmp`;
+
+    // Write the complete state to a temporary file.
+    fs.writeFileSync(tempPath, JSON.stringify(payload), { encoding: 'utf8' });
+
+    // Force the temporary file's contents to stable storage.
+    const fd = fs.openSync(tempPath, 'r');
     try {
-      const payload = {
-        currentTerm: this.currentTerm,
-        votedFor: this.votedFor,
-        log: this.log
-      };
-      const tempPath = `${this._persistPath}.tmp`;
-      fs.writeFileSync(tempPath, JSON.stringify(payload), { encoding: 'utf8' });
-      fs.renameSync(tempPath, this._persistPath);
-    } catch (err) {
-      // swallow persistence errors but log if environment requests it
-      if (process.env.DEBUG) console.warn(`[RaftState] save failed: ${err.message}`);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+
+    // Atomically replace the old state file.
+    fs.renameSync(tempPath, this._persistPath);
+
+    // Ensure the directory entry is also persisted.
+    const dirFd = fs.openSync(path.dirname(this._persistPath), 'r');
+    try {
+      fs.fsyncSync(dirFd);
+    } finally {
+      fs.closeSync(dirFd);
     }
   }
 
