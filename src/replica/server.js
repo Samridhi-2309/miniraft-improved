@@ -319,6 +319,18 @@ app.get('/state', (_req, res) => {
   });
 });
 
+app.get('/log', (_req, res) => {
+  res.json({
+    replicaId: state.replicaId,
+    currentTerm: state.currentTerm,
+    commitIndex: state.commitIndex,
+    lastApplied: state.lastApplied,
+    logLength: state.getLogLength(),
+    log: state.log,
+    committed: state.log.slice(0, state.commitIndex + 1)
+  });
+});
+
 app.post('/command', async (req, res) => {
   // ADDED FOR LOG REPLICATION: client write path for leader
   if (!state.isLeader()) {

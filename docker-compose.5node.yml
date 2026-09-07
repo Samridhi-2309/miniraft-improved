@@ -1,5 +1,4 @@
 services:
-
   gateway:
     container_name: gateway
     build:
@@ -27,7 +26,7 @@ services:
       DEV_MODE: "false"
     volumes:
       - ./src:/app/src:ro
-      - ./data/replica1:/app/data
+      - replica1-data:/app/data
     ports:
       - "4001:4001"
     restart: "no"
@@ -46,7 +45,7 @@ services:
       DEV_MODE: "false"
     volumes:
       - ./src:/app/src:ro
-      - ./data/replica2:/app/data
+      - replica2-data:/app/data
     ports:
       - "4002:4002"
     restart: "no"
@@ -65,7 +64,7 @@ services:
       DEV_MODE: "false"
     volumes:
       - ./src:/app/src:ro
-      - ./data/replica3:/app/data
+      - replica3-data:/app/data
     ports:
       - "4003:4003"
     restart: "no"
@@ -84,7 +83,7 @@ services:
       DEV_MODE: "false"
     volumes:
       - ./src:/app/src:ro
-      - ./data/replica4:/app/data
+      - replica4-data:/app/data
     ports:
       - "4004:4004"
     restart: "no"
@@ -103,12 +102,19 @@ services:
       DEV_MODE: "false"
     volumes:
       - ./src:/app/src:ro
-      - ./data/replica5:/app/data
+      - replica5-data:/app/data
     ports:
       - "4005:4005"
     restart: "no"
     networks:
       - raft-network
+
+volumes:
+  replica1-data:
+  replica2-data:
+  replica3-data:
+  replica4-data:
+  replica5-data:
 
 networks:
   raft-network:
