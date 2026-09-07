@@ -1,159 +1,207 @@
- # DoodleDock (miniraft)
+# DoodleDock (MiniRaft)
 
- Lightweight, production-oriented real-time collaborative drawing backed by a small RAFT-based cluster. The repository contains a WebSocket gateway, three RAFT replica nodes, and a static frontend that together provide a resilient drawing experience for multiple simultaneous clients.
+Real-time collaborative drawing backed by a **RAFT consensus cluster implemented from scratch** — leader election, log replication and state synchronisation, with no consensus library.
 
- Key points:
- - Real-time canvas updates over WebSocket (gateway)
- - Fault-tolerant replication and leader election using RAFT (replicas)
- - Gateway routes client strokes to the current leader and broadcasts committed strokes back to clients
- - Docker Compose + Makefile for easy local orchestration and development
+Strokes drawn in the browser are replicated through a five-node RAFT cluster and only broadcast back to clients once committed by a majority. The cluster tolerates two simultaneous node failures and network partitions without losing committed data.
 
-<img width="1470" height="808" alt="image" src="https://github.com/user-attachments/assets/678f9979-af6e-4a6d-a805-2d4388c78d68" />
+<img width="1470" height="808" alt="DoodleDock canvas" src="https://github.com/user-attachments/assets/678f9979-af6e-4a6d-a805-2d4388c78d68" />
 
- ---
+---
 
- ## Quickstart (recommended)
+## What this is
 
- Prerequisites:
- - Docker & Docker Compose (or Docker Desktop)
+Most collaborative canvases broadcast strokes optimistically and hope for the best. This one runs them through consensus first, which makes the failure behaviour precise and testable:
 
- 1. Copy sample environment file and adjust if needed:
+- **Leader election** with randomized timeouts, term-based voting, and the election restriction (a candidate wins only if its log is at least as up-to-date as the voter's)
+- **Log replication** with the AppendEntries consistency check, `nextIndex` back-off on rejection, and conflict-only truncation
+- **Commit safety** per Raft §5.4.2 — the leader only counts replicas for entries in its own term, and appends a no-op on election so prior-term entries commit indirectly
+- **Crash recovery** — `currentTerm`, `votedFor` and the log are fsync'd to disk before any RPC is answered
+- **Client deduplication** — commands carry a `commandId`, so a gateway retry after a timeout cannot apply the same stroke twice
 
-   ```bash
-   cp .env.example .env
-   # edit .env as needed
-   ```
+Every claim above has a test behind it. See [Testing](#testing).
 
- 2. Build and start the cluster (recommended):
+---
 
-   ```bash
-   make setup    # builds images
-   make up       # starts gateway + replica1/2/3
-   ```
+## Architecture
 
-   Or directly with Docker Compose:
+```
+Browser ──WebSocket──> Gateway ──HTTP POST /command──> Leader replica
+                          ▲                                 │
+                          │                        HTTP /rpc/append-entries
+                          │                                 ▼
+                          └────HTTP POST /commit──── Follower replicas
+```
 
-   ```bash
-   docker compose up --build
-   # or: docker-compose up --build
-   ```
+**Transport, precisely:** RAFT RPCs between replicas are **HTTP POST**. WebSockets are used **only** between the gateway and the browser. The gateway is stateless routing — it discovers the current leader, forwards commands to it, and broadcasts committed strokes to connected clients.
 
- 3. Open the frontend at: http://localhost:3000
+### Cluster sizing
 
- 4. Stop the cluster when finished:
+Quorum is `⌊N/2⌋ + 1`, derived from the peer list at runtime — never hardcoded.
 
-   ```bash
-   make down
-   # or: docker compose down
-   ```
+| Nodes | Quorum | Tolerates |
+|---|---|---|
+| 3 | 2 | 1 failure |
+| **5** | **3** | **2 failures** |
 
- Notes:
- - The gateway serves the static frontend from `src/frontend` and exposes a WebSocket server for client connections.
- - The Docker images use `DEV_MODE=true` (in `docker-compose.yml`) to enable `nodemon` for fast iteration when editing `src/`.
+`docker-compose.5node.yml` is the primary configuration. `docker-compose.yml` runs a 3-node cluster for quicker local iteration.
 
- ---
+### Protocol timing
 
- ## Running components individually (development)
+| Constant | Value |
+|---|---|
+| `HEARTBEAT_INTERVAL` | 150 ms |
+| `ELECTION_TIMEOUT` | 1500–3000 ms (randomized) |
+| `RPC_TIMEOUT` | 500 ms |
 
- You can run gateway and replicas directly with Node for faster debugging.
+The invariant that must hold is `HEARTBEAT_INTERVAL < RPC_TIMEOUT < ELECTION_TIMEOUT_MIN`. Randomizing the election timeout across a 1500 ms spread is what prevents repeated split votes.
 
- Start the gateway (example):
+---
 
- ```bash
- # point the gateway at your running replicas
- REPLICA_ENDPOINTS="http://localhost:4001,http://localhost:4002,http://localhost:4003" PORT=3000 npm run start:gateway
- ```
+## Quickstart
 
- Start a replica (example for replica 1):
+Prerequisites: Docker and Docker Compose.
 
- ```bash
- REPLICA_ID=1 PORT=4001 PEERS="http://localhost:4002,http://localhost:4003" npm run start:replica
- ```
+```bash
+# 5-node cluster (recommended)
+docker compose -f docker-compose.5node.yml up --build -d
 
- Tips:
- - If you run services locally (not in Docker), ensure the `REPLICA_ENDPOINTS` (gateway) and `PEERS` (replicas) point to the correct hosts/ports.
- - The gateway will serve `src/frontend` on `/` so you can open `http://localhost:3000` while running the gateway locally.
+# or the 3-node cluster
+make setup && make up
+```
 
- ---
+Open **http://localhost:3000**.
 
- ## Project layout
+```bash
+# tear down, including persisted RAFT state
+docker compose -f docker-compose.5node.yml down -v
+```
 
- Top-level folders and their purpose:
+Replica state lives in **named Docker volumes**, not host bind mounts. This matters: `fsync` on a bind mount through the Docker Desktop VM layer can block Node's event loop for longer than `RPC_TIMEOUT`, which starves vote responses and livelocks elections. Named volumes sit on the VM's native filesystem, where fsync is fast.
 
- ```
- .
- ├── src/
- │   ├── gateway/            # Gateway: HTTP + WebSocket server
- │   ├── replica/            # Replica node (RAFT participant)
- │   └── replicas/common/    # RAFT internals (state, election, replication)
- ├── replica1/               # Replica1 container source (used by Docker Compose)
- ├── replica2/               # Replica2 container source
- ├── replica3/               # Replica3 container source
- ├── infra/docker/           # Dockerfiles for gateway and replicas
- ├── docker-compose.yml      # Orchestration for local cluster
- ├── Makefile                # Convenience commands (build, up, down, logs, test)
- └── src/frontend/           # Static frontend (served by gateway)
- ```
+### Running components directly
 
- Key files:
- - `src/gateway/server.js` — HTTP routes, health, `POST /commit`, static file serving, and WebSocket initialization
- - `src/gateway/websocket.js` — WebSocket handling, client queueing when leader unavailable
- - `src/gateway/leaderRouter.js` — Routes commands to leader replica and discovers leader
- - `src/replica/server.js` — Replica API: `/rpc/*`, `/command`, state endpoints
- - `src/replicas/common/*` — RAFT algorithm components (state, election, replication)
- - `src/frontend/index.html` — Frontend UI (canvas, toolbar, websocket client)
- - `src/frontend/canvas.js` — Canvas drawing engine (undo, eraser, stroke history)
+```bash
+# gateway
+REPLICA_ENDPOINTS="http://localhost:4001,http://localhost:4002,http://localhost:4003,http://localhost:4004,http://localhost:4005" \
+PORT=3000 npm run start:gateway
 
- ---
+# one replica
+REPLICA_ID=1 PORT=4001 \
+PEERS="http://localhost:4002,http://localhost:4003,http://localhost:4004,http://localhost:4005" \
+npm run start:replica
+```
 
- ## APIs & Protocols
+---
 
- Gateway (HTTP):
- - `GET /health` — basic health check
- - `GET /leader` — returns the currently known leader (URL)
- - `POST /commit` — leader posts committed entries here; gateway will broadcast them to connected clients
- - `GET /cluster` — configured replica endpoints
- - `GET /clients` — number of connected websocket clients
+## Testing
 
- Gateway (WebSocket):
- - Clients connect over WebSocket (example client uses `ws://<host>/`).
- - Client -> gateway messages: JSON objects with `type: 'stroke'` and payload `{ points: [...], color, timestamp }`.
- - Gateway broadcasts committed strokes back to clients as `{ type: 'stroke', points, color, timestamp }`.
- - When the gateway cannot reach a leader it will enqueue strokes and respond to client with `{ type: 'queued', message: 'stroke queued, will retry' }`.
- - Gateway also sends informational messages (e.g. `type: 'leader'` when leader changes).
+Two scripts, both of which assert and exit non-zero on failure rather than printing logs for a human to read.
 
- Replica (HTTP):
- - `GET /health` — replica health and basic state
- - `GET /state` — detailed replica state (role, term, log length)
- - `POST /command` — write path accepted only by leader (used by gateway/clients via leaderRouter)
- - `POST /rpc/request-vote` — RAFT voting endpoint
- - `POST /rpc/append-entries` — RAFT log replication endpoint
+### Failure recovery — surviving two simultaneous crashes
 
- Message structure (example stroke):
+```powershell
+powershell -ExecutionPolicy Bypass -File tests\failure-tests.ps1
+```
 
- ```json
- {
-  "type": "stroke",
-  "points": [{"x":10,"y":15}, ...],
-  "color": "#000000",
-  "timestamp": 1680000000000
- }
- ```
+Kills the **leader plus one follower** with `SIGKILL` — the hard case, since it forces a re-election with only three of five nodes remaining. Verifies:
 
- ---
+1. All five replicas agree on the committed prefix before the failure
+2. The surviving three elect a new leader
+3. The cluster still accepts and commits writes with two nodes down
+4. Killed nodes restart and catch up from persisted state
+5. Exactly one leader afterwards
+6. All five committed prefixes are identical, with no command lost
 
- ## Testing & Utilities
+`SIGKILL` rather than `SIGTERM` is deliberate — a graceful shutdown lets the process flush state and doesn't test crash recovery.
 
- - Run RAFT smoke tests: `npm run test:smoke` or `make test` (runs `test-raft.sh` when present)
- - Use `docker compose logs -f gateway` or `make logs-gateway` to tail gateway logs
- - Health checks: `make health` (uses `curl` inside containers via `docker-compose exec`)
+### Network partition — no split-brain
 
- ---
+```powershell
+powershell -ExecutionPolicy Bypass -File tests\partition-test.ps1
+```
 
- ## Development notes
+Uses `docker network disconnect` to isolate two nodes (including the current leader) from the other three. A killed node stops; a **partitioned** leader keeps running and still believes it leads, which is where split-brain becomes possible. Verifies:
 
- - The Docker images include `nodemon` and will automatically reload Node services when `DEV_MODE` is set to `true` (see `docker-compose.yml`).
- - The gateway statically serves files from `src/frontend`, so editing frontend assets and restarting the gateway (or using `nodemon`) is sufficient for most UI changes.
- - The gateway maintains a small in-memory queue to hold strokes when there is no available leader; queued items are flushed periodically.
+1. The majority side elects a new leader at a strictly higher term
+2. The majority side can still commit
+3. After healing, exactly one leader remains — the old leader steps down
+4. All five replicas converge on an identical committed prefix
+5. **The write attempted on the minority side is not in the committed log**
 
+A bash equivalent (`tests/failure-tests.sh`) is available for Linux and macOS; it requires `jq`.
 
+### Why the *committed prefix*, not the whole log
+
+RAFT does not guarantee that all replicas hold identical logs at any instant — a follower can legitimately lag by an uncommitted entry. What it guarantees is that the **committed prefix** is identical everywhere. Comparing full logs produces false failures on a correct system, so the tests compare `log[0..commitIndex]`.
+
+---
+
+## API
+
+### Gateway
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/health` | Health check |
+| `GET` | `/leader` | Currently known leader URL |
+| `GET` | `/cluster` | Configured replica endpoints |
+| `GET` | `/clients` | Connected WebSocket client count |
+| `POST` | `/commit` | Leader posts committed entries here for broadcast |
+
+WebSocket clients send `{ type: 'stroke', points, color, timestamp }` and receive committed strokes in the same shape. When no leader is reachable the gateway replies `{ type: 'queued' }`.
+
+### Replica
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/health` | Health and basic state |
+| `GET` | `/state` | Role, term, `commitIndex`, `logLength` |
+| `GET` | `/log` | Full log plus the committed prefix |
+| `POST` | `/command` | Client write path — rejected with 400 unless leader |
+| `POST` | `/rpc/request-vote` | RAFT election RPC |
+| `POST` | `/rpc/append-entries` | RAFT replication RPC |
+
+---
+
+## Project layout
+
+```
+src/
+├── gateway/            HTTP + WebSocket server, leader routing
+├── replica/            Replica HTTP API and RPC handlers
+├── replicas/common/    RAFT internals
+│   ├── raftState.js        persistent + volatile state, fsync'd persistence
+│   ├── election.js         candidate state machine, vote tracking
+│   ├── electionTimeout.js  randomized timeout
+│   ├── replicationManager.js  AppendEntries, commit advancement
+│   └── constants.js        protocol timing, quorum derivation
+└── frontend/           Canvas UI
+tests/                  Failure and partition validation
+infra/docker/           Dockerfiles
+```
+
+---
+
+## Known limitations
+
+Stated deliberately rather than left to be discovered.
+
+**No log compaction or snapshotting.** The log grows without bound — every stroke is an entry forever, and a new replica replays the whole history to catch up. The fix is per-server snapshots with `lastIncludedIndex`/`lastIncludedTerm` and an `InstallSnapshot` RPC.
+
+**No PreVote.** During a partition, an isolated minority repeatedly starts elections it cannot win, inflating its term each time. On reconnect that higher term unseats a perfectly healthy leader. The partition test reproduces this — the minority advanced roughly ten terms in thirty seconds. PreVote (Raft dissertation §9.6) fixes it: a candidate runs a preliminary round before incrementing its term, so an isolated node rejoins quietly.
+
+**The gateway is a single point of failure.** The state machine is replicated; the process in front of it is not. It's stateless routing apart from an in-memory queue for strokes received while no leader is reachable — those strokes are lost if the gateway dies. Note the scope of the durability claim: RAFT guarantees no loss of **committed** entries, and queued strokes were never committed.
+
+**No ReadIndex or leader leases.** A partitioned leader doesn't know it has been deposed and keeps reporting `role: 'leader'`, so reads from it can be stale. Writes fail safely, since it cannot reach a quorum.
+
+**Persistence rewrites the whole log as JSON on every append** — O(n) per append. Real implementations use segmented append-only log files.
+
+**Testing is scripted fault injection**, not linearizability checking. Jepsen-style verification against a model would be the next step.
+
+---
+
+## Development notes
+
+- Replica images are built from a single shared `./src` mount; nodes differ only by `REPLICA_ID`, `PORT` and `PEERS`.
+- `restart: "no"` is set deliberately in the 5-node compose. A restart policy would resurrect nodes killed during a fault-tolerance test and silently hide crash bugs.
+- `make logs`, `make ps`, `make health` are available for the 3-node setup.
