@@ -1,4 +1,20 @@
 services:
+
+  gateway:
+    container_name: gateway
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.gateway
+    environment:
+      PORT: "3000"
+      REPLICA_ENDPOINTS: "http://replica1:4001,http://replica2:4002,http://replica3:4003,http://replica4:4004,http://replica5:4005"
+      DEV_MODE: "false"
+    ports:
+      - "3000:3000"
+    restart: "no"
+    networks:
+      - raft-network
+
   replica1:
     container_name: replica1
     build:

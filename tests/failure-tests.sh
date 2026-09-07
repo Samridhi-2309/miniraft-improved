@@ -1,20 +1,54 @@
 #!/bin/bash
 set -e
 
-# Simple failure test script for Docker setup
-# Usage: ./tests/failure-tests.sh <replica-service-name>
+COMPOSE="docker compose -f docker-compose.5node.yml"
+LEADER="http://localhost:4001"
+TEST_VALUE="failure-recovery-test"
 
-SERVICE=${1:-replica2}
+echo "=== Starting 5-node cluster ==="
+$COMPOSE up -d
+sleep 3
 
-echo "Stopping ${SERVICE}..."
-docker compose stop ${SERVICE} || docker compose rm -f ${SERVICE} || true
-sleep 5
+echo
+echo "=== Initial cluster state ==="
+$COMPOSE ps
 
-echo "Starting ${SERVICE}..."
-docker compose start ${SERVICE} || docker compose up -d ${SERVICE}
-sleep 5
+echo
+echo "=== Killing replica4 and replica5 ==="
+docker kill --signal=SIGKILL replica4 replica5
+sleep 2
 
-echo "Checking gateway leader state"
-curl -s http://localhost:3000/leader | jq '.'
+echo
+echo "=== Verifying 3/5 replicas remain alive ==="
+$COMPOSE ps
 
-echo "Done"
+echo
+echo "=== Sending command through surviving leader ==="
+curl -s -X POST "$LEADER/command" \
+  -H "Content-Type: application/json" \
+  -d "{\"command\":{\"type\":\"test\",\"value\":\"$TEST_VALUE\"}}"
+
+echo
+echo
+echo "=== Waiting for replication/commit ==="
+sleep 2
+
+echo
+echo "=== Surviving replicas' logs ==="
+$COMPOSE logs --tail=30 replica1 replica2 replica3
+
+echo
+echo "=== Restarting replica4 and replica5 ==="
+$COMPOSE up -d replica4 replica5
+sleep 3
+
+echo
+echo "=== Verifying recovered replicas ==="
+$COMPOSE ps
+
+echo
+echo "=== Recovery logs ==="
+$COMPOSE logs --tail=30 replica4 replica5
+
+echo
+echo "=== Failure/recovery test complete ==="
