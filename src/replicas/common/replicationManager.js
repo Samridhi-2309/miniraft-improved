@@ -70,16 +70,17 @@ class ReplicationManager {
     };
 
     try {
-      const response = await Promise.race([
-        fetch(`${peerUrl}/rpc/append-entries`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        }),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('timeout')), RPC_TIMEOUT)
-        )
-      ]);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), RPC_TIMEOUT);
+
+      const response = await fetch(`${peerUrl}/rpc/append-entries`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         this.logger.debug(

@@ -18,7 +18,7 @@ module.exports = {
 
   // RPC request timeout (milliseconds)
   // Wait this long for RPC response before considering it failed
-  RPC_TIMEOUT: 5000,
+  RPC_TIMEOUT: 500,
 
   /**
    * Majority for a cluster of N nodes. Derived, never hardcoded —
