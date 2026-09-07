@@ -79,6 +79,7 @@ class RaftState {
 
     if (changed) {
       this.stateChangeTimestamp = Date.now();
+      this._saveToDisk();
     }
 
     return changed;
