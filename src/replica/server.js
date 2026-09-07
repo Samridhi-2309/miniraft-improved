@@ -445,13 +445,15 @@ app.post('/rpc/append-entries', (req, res) => {
     logger.stateTransition('any', 'follower', `higher term ${term}`);
   }
 
-  electionTimeout.reset(); // Reset on any valid message from leader
-
   // Reject if term is old
   if (term < state.currentTerm) {
     logger.rpc('SEND', 'append-entries', 'rejected', `stale term`);
     return res.json({ term: state.currentTerm, success: false, logLength: state.getLogLength() });
   }
+
+  // Valid current-term or higher-term message from leader.
+  electionTimeout.reset();
+
 
   // Simplified RAFT consistency check: match previous log entry
   if (prevLogIndex >= 0) {
